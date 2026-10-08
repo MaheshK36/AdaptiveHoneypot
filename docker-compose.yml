@@ -1,0 +1,336 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: adaptive-honeypot-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-honeypot}
+      POSTGRES_USER: ${POSTGRES_USER:-honeypot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - adaptive-honeypot-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-honeypot} -d ${POSTGRES_DB:-honeypot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: adaptive-honeypot-backend
+    command: ["uvicorn", "app.main:app", "--host", "${API_HOST}", "--port", "${API_PORT}"]
+    user: "${COWRIE_UID}:${COWRIE_GID}"
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTEST_ADDOPTS: -p no:cacheprovider
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://honeypot:change_me@db:5432/honeypot}
+      SESSION_ROOT: ${SESSION_ROOT:-/tmp/honeypot_sessions}
+      LOG_DIR: ${LOG_DIR:-/var/log/honeypot}
+      EVIDENCE_DIR: ${EVIDENCE_DIR:-/var/log/honeypot/evidence}
+      FAKE_HTTP_PORT: ${FAKE_HTTP_PORT:-8080}
+      FAKE_DB_PORT: ${FAKE_DB_PORT:-3306}
+      FAKE_DB_TEST_HOST: fake-db
+      FAKE_HTTP_TEST_HOST: fake-http
+      COWRIE_PORT: ${COWRIE_PORT:-2222}
+      COWRIE_TEST_HOST: cowrie
+      COWRIE_TEST_PORT: ${COWRIE_INTERNAL_PORT}
+      COWRIE_JSON_LOG_PATH: ${COWRIE_JSON_LOG_PATH}
+      API_PORT: ${API_PORT}
+      EVENT_INGEST_URL: ${EVENT_INGEST_URL}
+      EVENT_INGEST_TIMEOUT: ${EVENT_INGEST_TIMEOUT}
+    depends_on:
+      db:
+        condition: service_healthy
+      cowrie-log-init:
+        condition: service_completed_successfully
+    volumes:
+      - session_data:${SESSION_ROOT:-/tmp/honeypot_sessions}
+      - logs_data:/var/log/honeypot
+      - evidence_data:/var/log/honeypot/evidence
+    networks:
+      - adaptive-honeypot-internal
+    group_add:
+      - "${COWRIE_GID}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ['API_PORT']+'/api/health',timeout=2).close()"]
+      interval: 10s
+      timeout: 4s
+      retries: 5
+      start_period: 10s
+
+  fake-http:
+    build:
+      context: ./environment/http
+      dockerfile: Dockerfile
+    container_name: adaptive-honeypot-fake-http
+    command: ["app:app", "--host", "${FAKE_HTTP_BIND_ADDRESS}", "--port", "${FAKE_HTTP_PORT}", "--no-server-header"]
+    user: "${COWRIE_UID}:${COWRIE_GID}"
+    env_file:
+      - .env
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      FAKE_HTTP_PORT: ${FAKE_HTTP_PORT:-8080}
+      FAKE_HTTP_BIND_ADDRESS: ${FAKE_HTTP_BIND_ADDRESS}
+      FAKE_HTTP_SERVER_HEADER: ${FAKE_HTTP_SERVER_HEADER}
+      FAKE_HTTP_CONTENT_ROOT: ${FAKE_HTTP_CONTENT_ROOT}
+      FAKE_HTTP_SESSIONS_ROOT: ${FAKE_HTTP_SESSIONS_ROOT}
+      EVENT_INGEST_URL: ${EVENT_INGEST_URL}
+      EVENT_INGEST_TIMEOUT: ${EVENT_INGEST_TIMEOUT}
+    ports:
+      - "${HONEYPOT_BIND_ADDRESS:-127.0.0.1}:${FAKE_HTTP_PORT:-8080}:${FAKE_HTTP_PORT:-8080}"
+    depends_on:
+      host-firewall:
+        condition: service_healthy
+      cowrie-log-init:
+        condition: service_completed_successfully
+      backend:
+        condition: service_healthy
+    volumes:
+      - session_data:/srv/fake-http/sessions:ro
+      - logs_data:/var/log/honeypot
+    networks:
+      - adaptive-honeypot-internal
+      - adaptive-honeypot-exposed
+    group_add:
+      - "${COWRIE_GID}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; port=f\"{int(os.environ['FAKE_HTTP_PORT']):04X}\"; rows=open('/proc/net/tcp').read().splitlines()[1:]; raise SystemExit(not any(row.split()[1].endswith(':'+port) and row.split()[3]=='0A' for row in rows))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  fake-db:
+    build:
+      context: ./environment/db
+      dockerfile: Dockerfile
+    container_name: adaptive-honeypot-fake-db
+    working_dir: /app
+    user: "${COWRIE_UID}:${COWRIE_GID}"
+    env_file:
+      - .env
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      FAKE_DB_PORT: ${FAKE_DB_PORT:-3306}
+      FAKE_DB_BIND_ADDRESS: ${FAKE_DB_BIND_ADDRESS}
+      FAKE_DB_SESSION_ROOT: ${FAKE_DB_SESSION_ROOT}
+      FAKE_DB_MAX_SESSIONS: ${FAKE_DB_MAX_SESSIONS}
+      FAKE_DB_TEST_HOST: fake-db
+      LOG_DIR: ${LOG_DIR}
+      EVENT_INGEST_URL: ${EVENT_INGEST_URL}
+      EVENT_INGEST_TIMEOUT: ${EVENT_INGEST_TIMEOUT}
+    ports:
+      - "${HONEYPOT_BIND_ADDRESS:-127.0.0.1}:${FAKE_DB_PORT:-3306}:${FAKE_DB_PORT:-3306}"
+    depends_on:
+      host-firewall:
+        condition: service_healthy
+      cowrie-log-init:
+        condition: service_completed_successfully
+    volumes:
+      - session_data:${FAKE_DB_SESSION_ROOT}:ro
+      - logs_data:/var/log/honeypot
+    networks:
+      - adaptive-honeypot-internal
+      - adaptive-honeypot-exposed
+    group_add:
+      - "${COWRIE_GID}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; port=f\"{int(os.environ['FAKE_DB_PORT']):04X}\"; rows=open('/proc/net/tcp').read().splitlines()[1:]; raise SystemExit(not any(row.split()[1].endswith(':'+port) and row.split()[3]=='0A' for row in rows))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  cowrie:
+    build:
+      context: ./cowrie
+      dockerfile: Dockerfile
+      args:
+        COWRIE_UID: ${COWRIE_UID}
+        COWRIE_GID: ${COWRIE_GID}
+    container_name: adaptive-honeypot-cowrie
+    command: ["/cowrie/cowrie-env/bin/twistd", "-n", "--umask=${COWRIE_LOG_UMASK}", "--pidfile=", "--logger", "cowrie.python.logfile.stdoutLogger", "cowrie"]
+    ports:
+      - "${HONEYPOT_BIND_ADDRESS}:${COWRIE_PORT}:${COWRIE_INTERNAL_PORT}"
+    volumes:
+      - session_data:${COWRIE_SESSION_DATA_ROOT}:ro
+      - logs_data:/var/log/honeypot
+    environment:
+      COWRIE_SESSION_FS_HOOK: enabled
+      COWRIE_SESSION_API_URL: ${BACKEND_API_URL}
+      COWRIE_SESSION_DATA_ROOT: ${COWRIE_SESSION_DATA_ROOT}
+      COWRIE_HONEYPOT_LOG_PATH: ${LOG_DIR}
+      COWRIE_HONEYPOT_VAR_PATH: ${COWRIE_HONEYPOT_VAR_PATH}
+      COWRIE_OUTPUT_JSONLOG_ENABLED: "true"
+      COWRIE_OUTPUT_JSONLOG_LOGFILE: ${COWRIE_JSON_LOG_PATH}
+      COWRIE_SSH_PORT: ${COWRIE_INTERNAL_PORT}
+      COWRIE_LOG_UMASK: ${COWRIE_LOG_UMASK}
+      EVENT_INGEST_TIMEOUT: ${EVENT_INGEST_TIMEOUT}
+    networks:
+      - adaptive-honeypot-internal
+      - adaptive-honeypot-exposed
+    depends_on:
+      cowrie-log-init:
+        condition: service_completed_successfully
+      backend:
+        condition: service_healthy
+      host-firewall:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "/cowrie/cowrie-env/bin/python3", "-c", "import os; port=f\"{int(os.environ['COWRIE_SSH_PORT']):04X}\"; rows=open('/proc/net/tcp').read().splitlines()[1:]; raise SystemExit(not any(row.split()[1].endswith(':'+port) and row.split()[3]=='0A' for row in rows))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  cowrie-log-init:
+    image: busybox:1.36
+    container_name: adaptive-honeypot-cowrie-log-init
+    user: "0:0"
+    command: ["sh", "-c", "mkdir -p ${LOG_DIR} /session_data /evidence && chown -R ${COWRIE_UID}:${COWRIE_GID} ${LOG_DIR} /session_data /evidence && chmod -R g+rwX ${LOG_DIR} /session_data /evidence && find ${LOG_DIR} /session_data /evidence -type d -exec chmod g+s {} +"]
+    volumes:
+      - logs_data:${LOG_DIR}
+      - session_data:/session_data
+      - evidence_data:/evidence
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: "no"
+
+  cowrie-collector:
+    build:
+      context: ./environment/cowrie
+      dockerfile: Dockerfile
+    container_name: adaptive-honeypot-cowrie-collector
+    user: "${COWRIE_UID}:${COWRIE_GID}"
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      COWRIE_JSON_LOG_PATH: ${COWRIE_JSON_LOG_PATH}
+      LOG_DIR: ${LOG_DIR}
+      COLLECTOR_HEARTBEAT_MAX_AGE: ${COLLECTOR_HEARTBEAT_MAX_AGE}
+      EVENT_INGEST_URL: ${EVENT_INGEST_URL}
+      EVENT_INGEST_TIMEOUT: ${EVENT_INGEST_TIMEOUT}
+      COLLECTOR_POLL_INTERVAL: ${COLLECTOR_POLL_INTERVAL}
+      COLLECTOR_MAX_LINE_BYTES: ${COLLECTOR_MAX_LINE_BYTES}
+      COLLECTOR_MAX_MAPPINGS: ${COLLECTOR_MAX_MAPPINGS}
+    volumes:
+      - logs_data:${LOG_DIR}
+    networks:
+      - adaptive-honeypot-internal
+    group_add:
+      - "${COWRIE_GID}"
+    depends_on:
+      backend:
+        condition: service_healthy
+      cowrie:
+        condition: service_started
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,time; from pathlib import Path; p=Path(os.environ['LOG_DIR'])/'cowrie-collector-heartbeat'; raise SystemExit(not p.exists() or time.time()-p.stat().st_mtime > float(os.environ['COLLECTOR_HEARTBEAT_MAX_AGE']))"]
+      interval: 15s
+      timeout: 4s
+      retries: 3
+
+  host-firewall:
+    build:
+      context: ./docker/firewall
+      dockerfile: Dockerfile
+    container_name: adaptive-honeypot-host-firewall
+    network_mode: host
+    environment:
+      HONEYPOT_EXPOSED_SUBNET: ${HONEYPOT_EXPOSED_SUBNET}
+      HONEYPOT_INTERNAL_SUBNET: ${HONEYPOT_INTERNAL_SUBNET}
+      HONEYPOT_EXPOSED_BRIDGE_NAME: ${HONEYPOT_EXPOSED_BRIDGE_NAME}
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 64m
+    cpus: 0.1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "iptables -C DOCKER-USER -s ${HONEYPOT_EXPOSED_SUBNET} -j HONEYPOT-EXPOSED-EGRESS && iptables -C INPUT -i ${HONEYPOT_EXPOSED_BRIDGE_NAME} -s ${HONEYPOT_EXPOSED_SUBNET} -j HONEYPOT-EXPOSED-INPUT"]
+      interval: 10s
+      timeout: 4s
+      retries: 3
+
+networks:
+  adaptive-honeypot-internal:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${HONEYPOT_INTERNAL_SUBNET}
+          gateway: ${HONEYPOT_INTERNAL_GATEWAY}
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  adaptive-honeypot-exposed:
+    ipam:
+      config:
+        - subnet: ${HONEYPOT_EXPOSED_SUBNET}
+          gateway: ${HONEYPOT_EXPOSED_GATEWAY}
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.name: ${HONEYPOT_EXPOSED_BRIDGE_NAME}
+
+volumes:
+  postgres_data:
+  session_data:
+  logs_data:
+  evidence_data:

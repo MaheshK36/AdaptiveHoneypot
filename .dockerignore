@@ -1,0 +1,13 @@
+.git
+.venv
+**/.venv
+**/__pycache__
+**/.pytest_cache
+.env
+.env.*
+dashboard
+ml
+telemetry
+honeypot
+deception
+cowrie

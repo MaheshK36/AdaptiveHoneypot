@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Internal Asset Portal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: Arial, sans-serif; margin: 2rem; background: #f5f7fb; color: #1c2430; }
+      .card { max-width: 680px; margin: auto; background: white; border-radius: 12px; padding: 2rem; box-shadow: 0 3px 12px rgba(0,0,0,0.08); }
+      input { width: 100%; padding: 0.7rem; margin: 0.5rem 0; border: 1px solid #ced7e2; border-radius: 8px; }
+      button { padding: 0.7rem 1rem; background: #1d4ed8; color: white; border: none; border-radius: 8px; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Internal Asset Portal</h1>
+      <p>Authenticate to continue to the operations dashboard.</p>
+      <form action="/login" method="post">
+        <label>Username</label>
+        <input type="text" name="username" />
+        <label>Password</label>
+        <input type="password" name="password" />
+        <button type="submit">Log in</button>
+      </form>
+    </div>
+  </body>
+</html>

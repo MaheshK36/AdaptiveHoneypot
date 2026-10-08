@@ -1,0 +1,7 @@
+items:
+  - ls -la
+  - cat /etc/passwd
+  - find / -name "*.env"
+  - sudo -l
+  - ps -ef
+  - uname -a

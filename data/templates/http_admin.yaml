@@ -1,0 +1,12 @@
+content: |
+  <!doctype html>
+  <html lang="en">
+    <head><meta charset="utf-8" /><title>Operations Admin</title></head>
+    <body>
+      <h1>Operations Admin</h1>
+      <table>
+        <thead><tr><th>Host</th><th>Operator</th><th>Database</th></tr></thead>
+        <tbody><tr><td>{hostname}</td><td>{ssh_login_username}</td><td>{database[name]}</td></tr></tbody>
+      </table>
+    </body>
+  </html>

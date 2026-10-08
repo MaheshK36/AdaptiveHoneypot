@@ -1,0 +1,5 @@
+items:
+  - shipped
+  - processing
+  - closed
+  - pending

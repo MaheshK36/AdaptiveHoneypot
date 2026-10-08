@@ -1,0 +1,31 @@
+items:
+  - distribution: Ubuntu
+    release: "22.04"
+    kernel_release: "5.15.0"
+    kernel_build_string: "#1 SMP PREEMPT_DYNAMIC Ubuntu"
+    hardware_platform: "x86_64"
+    operating_system: "GNU/Linux"
+    hostname_prefixes:
+      - edge
+      - api
+      - batch
+  - distribution: Debian
+    release: "12"
+    kernel_release: "6.1.0"
+    kernel_build_string: "#1 SMP PREEMPT_DYNAMIC Debian"
+    hardware_platform: "x86_64"
+    operating_system: "GNU/Linux"
+    hostname_prefixes:
+      - app
+      - web
+      - cache
+  - distribution: Rocky Linux
+    release: "9.4"
+    kernel_release: "5.14.0"
+    kernel_build_string: "#1 SMP PREEMPT_DYNAMIC Rocky"
+    hardware_platform: "x86_64"
+    operating_system: "GNU/Linux"
+    hostname_prefixes:
+      - node
+      - svc
+      - store

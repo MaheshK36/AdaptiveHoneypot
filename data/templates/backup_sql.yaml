@@ -1,0 +1,6 @@
+header: |
+  USE `{database[name]}`;
+  CREATE TABLE users (id INT, username TEXT, email TEXT, role TEXT);
+  CREATE TABLE orders (id INT, user_id INT, product TEXT, status TEXT, total DECIMAL(10,2));
+user_row: "INSERT INTO users (id, username, email, role) VALUES ({id}, '{username}', '{email}', '{role}');"
+order_row: "INSERT INTO orders (id, user_id, product, status, total) VALUES ({id}, {user_id}, '{product}', '{status}', {total});"

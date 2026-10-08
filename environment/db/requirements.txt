@@ -1,0 +1,2 @@
+mysql-mimic==3.0.5
+httpx>=0.27,<1.0
